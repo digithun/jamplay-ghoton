@@ -1,4 +1,4 @@
-# jamplay-ghoto
+# jamplay-ghoton
 photon service rewrite in Golang
 
 
