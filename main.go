@@ -2,11 +2,19 @@ package main
 
 import (
 	"log"
-
 	"github.com/gin-gonic/gin"
 )
 
 func drawImageHandler(c *gin.Context) {
+	var meta1 *ImageMeta
+	c.BindJSON(&meta1)
+
+
+	DrawImage(meta1)
+
+	c.JSON(200, gin.H{
+		"Path": meta1.Path,
+	})
 }
 
 func main() {

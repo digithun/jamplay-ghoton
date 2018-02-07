@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -14,30 +15,32 @@ import (
 
 // ImageMeta info of image to draw
 type ImageMeta struct {
-	Title              string
-	Name               string
-	ProfileImageURL    string
-	ThumbnailImageURL  string
-	BackgroundImageURL string
-	FileName           string
+	Cover  string `json:"cover" binding:"required"`
+	Author string `json:"author" binding:"required"`
+
+	Title      string `json:"title" binding:"required"`
+	AuthorName string `json:"authorName" binding:"required"`
+
+	Path string `json:"path" binding:"required"`
+	Type string `json:"type" binding:"required"`
 }
 
 const (
 	canvasHeight     = 630
 	canvasWidth      = 1200
-	padding      int = 120.0
+	padding      int = 143.0
 
 	bookWidth              float64 = 266.0
 	bookHeight             float64 = 389.0
 	profileImageWidth      float64 = 75.0
 	profileImageHeight     float64 = 75.0
-	profileImageMarginLeft float64 = 18
+	profileImageMarginLeft float64 = 13
 
 	// description measurement
 	descriptionMarginLeft = 20
 	descriptionPositionX  = float64(padding) + bookWidth + float64(descriptionMarginLeft)
 
-	titleFontSize   float64 = 50.0
+	titleFontSize   float64 = 68.0
 	titleLineHeight float64 = 1.5
 	nameMarginTop   float64 = 0
 	nameFontSize    float64 = 28.0
@@ -48,7 +51,8 @@ const (
 )
 
 var (
-	fontfile = flag.String("fontfile", "./assets/heavent.ttf", "filename of the ttf font")
+	DBHeaventRoundedMed = flag.String("DBHeaventRoundedMed", "./assets/font/DBHeaventRoundedMedv3.2.ttf", "filename of the DBHeaventRoundedMed ttf font")
+	mnlannabdv3         = flag.String("mnlannabdv3", "./assets/font/mn_lanna_bd_v3.2-webfont.ttf", "filename of the mnlannabdv3 ttf font")
 )
 
 func getImageFromURL(url string) (image.Image, error) {
@@ -66,55 +70,66 @@ func getImageFromURL(url string) (image.Image, error) {
 	return img, err
 }
 
-func drawBookThumbnailImageToCanvas(thumbnailImageURL string, c *gg.Context) error {
-
+func drawURLImage(imageURL string, posX int, posY int, width int, height int, roundEdge float64, c *gg.Context) error {
 	// Prepare asset
-	thumbnailImage, err := getImageFromURL(thumbnailImageURL)
+	image, err := getImageFromURL(imageURL)
 	if err != nil {
 		return err
 	}
 	// calculate measuring
-	thumbnailWidth, thumbnailHeight := float64(thumbnailImage.Bounds().Dx()), float64(thumbnailImage.Bounds().Dy())
-	scaleX, scaleY := bookWidth/thumbnailWidth, bookHeight/thumbnailHeight
-	BookPositionY := ((canvasHeight / 2) - (bookHeight / 2)) / scaleY
-	BookPositionX := int(float64(padding) / float64(scaleX))
+	imageWidth, imageHeight := float64(image.Bounds().Dx()), float64(image.Bounds().Dy())
+	scaleX, scaleY := float64(width)/imageWidth, float64(height)/imageHeight
 	// Start drawing
 	c.Scale(scaleX, scaleY)
-	c.DrawRoundedRectangle(float64(BookPositionX), BookPositionY, float64(thumbnailWidth), float64(thumbnailHeight), 15.0)
+	c.DrawRoundedRectangle(float64(posX)/scaleX,float64(posY)/scaleY, float64(imageWidth), float64(imageHeight), roundEdge)
 	c.Clip()
-	c.DrawImage(thumbnailImage, BookPositionX, int(BookPositionY))
+	c.DrawImage(image, int(float64(posX)/scaleX), int(float64(posY)/scaleY))
 	c.ResetClip()
 	c.Scale(1/scaleX, 1/scaleY)
 	return nil
 }
 
+func getFont(fontString *string) (font *truetype.Font, err error) {
+
+	fontbyte, err := ioutil.ReadFile(*fontString)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	font, err = truetype.Parse(fontbyte)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	return
+}
+
 func drawDescription(meta *ImageMeta, c *gg.Context) error {
 	// Prepare Asset
-	authorProfileImage, err := getImageFromURL(meta.ProfileImageURL)
+	authorProfileImage, err := getImageFromURL(meta.Author)
 	if err != nil {
 		return err
 	}
 	thumbnailWidth, thumbnailHeight := float64(authorProfileImage.Bounds().Dx()), float64(authorProfileImage.Bounds().Dy())
-	fontBytes, err := ioutil.ReadFile(*fontfile)
+
+	mnlannaFont, err := getFont(mnlannabdv3)
+	DBHeaventRoundedMedFont, err := getFont(DBHeaventRoundedMed)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	heaventFont, err := truetype.Parse(fontBytes)
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	titleFace := truetype.NewFace(heaventFont, &truetype.Options{
+	titleFace := truetype.NewFace(DBHeaventRoundedMedFont, &truetype.Options{
 		Size: titleFontSize,
 	})
-	nameFace := truetype.NewFace(heaventFont, &truetype.Options{
+	nameFace := truetype.NewFace(mnlannaFont, &truetype.Options{
 		Size: nameFontSize,
 	})
 
 	// Measureing constant....
 	numberOfTitleLines := len(c.WordWrap(meta.Title, float64(maxTitleWidth)))
-	numberOfNameLines := len(c.WordWrap(meta.Name, float64(maxNameWidth)))
+	numberOfNameLines := len(c.WordWrap(meta.AuthorName, float64(maxNameWidth)))
 	titleHeight := (float64(numberOfTitleLines) * (titleFontSize)) + (float64(numberOfTitleLines) * (titleFontSize * titleLineHeight))
 	nameHeight := (float64(numberOfNameLines) * (nameFontSize))
 	posY := (canvasHeight / 2) - ((nameHeight + titleHeight + nameMarginTop) / 2)
@@ -126,7 +141,7 @@ func drawDescription(meta *ImageMeta, c *gg.Context) error {
 
 	c.SetFontFace(nameFace)
 	posY = posY + titleHeight + nameMarginTop
-	nameWidth, _ := c.MeasureString(meta.Name)
+	nameWidth, _ := c.MeasureString(meta.AuthorName)
 	if nameWidth > maxNameWidth {
 		nameWidth = maxNameWidth
 	}
@@ -135,7 +150,7 @@ func drawDescription(meta *ImageMeta, c *gg.Context) error {
 	profilePositionX := descriptionPositionX + profileImageWidth + (((maxNameWidth) / 2) - ((nameWidth) / 2)) - profileImageMarginLeft
 
 	c.DrawStringWrapped(
-		meta.Name,
+		meta.AuthorName,
 		float64(profilePositionX+profileImageMarginLeft+profileImageWidth/2),
 		float64(posY),
 		float64(0),
@@ -164,7 +179,10 @@ func DrawImage(meta *ImageMeta) {
 	fmt.Println("[main] Draw image..")
 
 	// Load BackgroundImage from file
-	bgFile, err := gg.LoadImage("./assets/share_template_book.png")
+	s := strings.Split(meta.Type, "_")
+	template := strings.Join([]string{"./assets/", s[0], "_template_", s[1], ".png"}, "")
+
+	bgFile, err := gg.LoadImage(template)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -172,9 +190,12 @@ func DrawImage(meta *ImageMeta) {
 	canvas := gg.NewContext(canvasWidth, canvasHeight)
 	canvas.DrawImage(bgFile, 0, 0)
 
-	drawBookThumbnailImageToCanvas(meta.ThumbnailImageURL, canvas)
+
+	drawURLImage(meta.Cover,143,140,int(bookWidth),int(bookHeight),15,canvas)
+
+	// drawBookThumbnailImageToCanvas(meta.Cover, canvas)
 	err = drawDescription(meta, canvas)
 
-	canvas.SavePNG(meta.FileName)
+	canvas.SavePNG(meta.Path)
 
 }
