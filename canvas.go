@@ -44,7 +44,7 @@ const (
 	nameLineHeight  float64 = 1.5
 
 	maxTitleWidth = 700 //canvasWidth - (padding * 2) - descriptionMarginLeft
-	maxNameWidth  = 700 - profileImageWidth
+	maxNameWidth  = 700 - profileImageWidth - profileImageMarginLeft - 80
 )
 
 var (
@@ -134,7 +134,15 @@ func drawDescription(meta *ImageMeta, c *gg.Context) error {
 	c.SetHexColor("#fff")
 	profilePositionX := descriptionPositionX + profileImageWidth + (((maxNameWidth) / 2) - ((nameWidth) / 2)) - profileImageMarginLeft
 
-	c.DrawStringWrapped(meta.Name, float64(profilePositionX+profileImageMarginLeft+profileImageWidth/2), float64(posY), float64(0), float64(0.5), float64(maxTitleWidth), nameLineHeight, gg.AlignLeft)
+	c.DrawStringWrapped(
+		meta.Name,
+		float64(profilePositionX+profileImageMarginLeft+profileImageWidth/2),
+		float64(posY),
+		float64(0),
+		float64(0.5),
+		float64(maxNameWidth),
+		nameLineHeight, gg.AlignLeft,
+	)
 
 	scaleX, scaleY := profileImageWidth/thumbnailWidth, profileImageHeight/thumbnailHeight
 	fmt.Printf("%f %f", scaleX, scaleY)
