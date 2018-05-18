@@ -1,95 +1,458 @@
 package main
 
 import (
+	"bytes"
 	"flag"
-	"fmt"
-	"image"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
 )
 
-// ImageMeta info of image to draw
-type ImageMeta struct {
-	Cover  string `json:"cover" binding:"required"`
-	Author string `json:"author" binding:"required"`
+const nameLineHeight float64 = 1.2
+const DIMENSION_AUTO_RESIZE_ASPECT_RATIO = -1
+const LAST_DIMENSION_TOFIT_WIDTH_RIGHT = -1
+const LAST_DIMENSION_TOFIT_WIDTH_LEFT = -2
+const LAST_DIMENSION_WIDTH = -3
+const LAST_DIMENSION_HEIGHT = -4
 
-	Title      string `json:"title" binding:"required"`
-	AuthorName string `json:"authorName" binding:"required"`
+////relate to last rectangle position
 
-	Path string `json:"path" binding:"required"`
-	Type string `json:"type" binding:"required"`
+//will place outside the rectangle, X axis
+const LAST_POSITION_BOUND_NEXT_TO_LEFT = -1
+const LAST_POSITION_BOUND_NEXT_TO_RIGHT = -2
+
+//will place outside the rectangle, Y axis
+const LAST_POSITION_BOUND_NEXT_TO_BOTTOM = -3
+const LAST_POSITION_BOUND_NEXT_TO_TOP = -4
+
+//will place inside the rectangle, X axis
+const LAST_POSITION_INNNER_BOUND_LEFT = -5
+const LAST_POSITION_INNNER_BOUND_RIGHT = -6
+
+//will place inside the rectangle, Y axis
+const LAST_POSITION_INNER_BOUND_BOTTOM = -7
+const LAST_POSITION_INNER_BOUND_TOP = -8
+
+//will center to last rectangle at Y axis
+const LAST_POSITION_BOUND_VERTICAL_CENTER = -9
+
+const TEXT_TOFIT = 0
+const TEXT_SINGLE_LINE = 9999
+
+//type
+const TEXT_CLIP_OVERFLOW_CLIP = 0
+const TEXT_CLIP_OVERFLOW_ELLIPSIS = 1
+
+type TextClipOption struct {
+	OverFlowOption int
+	NoClip         bool
+	ClipWidth      int
+	MaxLine        int
 }
 
-const (
-	canvasHeight     = 630
-	canvasWidth      = 1200
-	padding      int = 143.0
-
-	bookWidth              float64 = 266.0
-	bookHeight             float64 = 389.0
-	profileImageWidth      float64 = 75.0
-	profileImageHeight     float64 = 75.0
-	profileImageMarginLeft float64 = 13
-
-	// description measurement
-	descriptionMarginLeft = 20
-	descriptionPositionX  = float64(padding) + bookWidth + float64(descriptionMarginLeft)
-
-	titleFontSize   float64 = 68.0
-	titleLineHeight float64 = 1.5
-	nameMarginTop   float64 = 0
-	nameFontSize    float64 = 28.0
-	nameLineHeight  float64 = 1.5
-
-	maxTitleWidth = 700 //canvasWidth - (padding * 2) - descriptionMarginLeft
-	maxNameWidth  = 700 - profileImageWidth - profileImageMarginLeft - 80
-)
-
-var (
-	DBHeaventRoundedMed = flag.String("DBHeaventRoundedMed", "./assets/font/DBHeaventRoundedMedv3.2.ttf", "filename of the DBHeaventRoundedMed ttf font")
-	mnlannabdv3         = flag.String("mnlannabdv3", "./assets/font/mn_lanna_bd_v3.2-webfont.ttf", "filename of the mnlannabdv3 ttf font")
-)
-
-func getImageFromURL(url string) (image.Image, error) {
-	response, responseError := http.Get(url)
-	if responseError != nil {
-		return nil, responseError
-	}
-
-	defer response.Body.Close()
-
-	img, _, err := image.Decode(response.Body)
-	if err != nil {
-		fmt.Println(err.Error())
-	}
-	return img, err
+type Point struct {
+	x, y int
 }
 
-func drawURLImage(imageURL string, posX int, posY int, width int, height int, roundEdge float64, c *gg.Context) error {
-	// Prepare asset
-	image, err := getImageFromURL(imageURL)
-	if err != nil {
-		return err
+type Dimension struct {
+	Width, Height int
+}
+
+type Margin struct {
+	Top, Right, Bottom, Left int
+}
+
+type Padding struct {
+	Top, Right, Bottom, Left int
+}
+
+type Rectangle struct {
+	Dimension Dimension
+	Point     Point
+}
+
+func (r Rectangle) left() int {
+	return r.Point.x
+}
+
+func (r Rectangle) right() int {
+	return r.Point.x + r.Dimension.Width
+}
+
+func (r Rectangle) top() int {
+	return r.Point.y
+}
+
+func (r Rectangle) bottom() int {
+	return r.Point.y + r.Dimension.Height
+}
+
+type Canvas struct {
+	context         gg.Context
+	debug           bool
+	width, height   int
+	lastRenderBound Rectangle
+	lastClipText    string
+}
+
+func NewCanvas(size Dimension) *Canvas {
+	c := new(Canvas)
+	c.context = *gg.NewContext(size.Width, size.Height)
+	c.width = size.Width
+	c.height = size.Height
+	c.lastRenderBound = Rectangle{}
+
+	return c
+}
+
+func (c *Canvas) drawCircle(p Point, radius float64, colorHex string) *Canvas {
+	c.context.DrawCircle(float64(p.x), float64(p.y), radius)
+	c.context.SetHexColor(colorHex)
+	c.context.Fill()
+	return c
+}
+
+// scaleToPx scale to pixel
+// scaleDimension select which side to scale. All scaling will retain aspect ratio
+func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64) *Canvas {
+	c.verifyRectangle(&r)
+
+	if strings.Index(path, "http") == 0 {
+		log.Print("is URL : ")
+		path = cacheURLtoDisk(path)
 	}
+	log.Print("is path : ", path)
+
+	image, err := gg.LoadImage(path)
+
+	if err != nil {
+		log.Print("err ", err)
+		return c
+	}
+
 	// calculate measuring
 	imageWidth, imageHeight := float64(image.Bounds().Dx()), float64(image.Bounds().Dy())
-	scaleX, scaleY := float64(width)/imageWidth, float64(height)/imageHeight
+	scaleX, scaleY := float64(r.Dimension.Width-m.Right-m.Left)/imageWidth, float64(r.Dimension.Height-m.Bottom-m.Top)/imageHeight
+	if scaleY < 0 {
+		scaleY = scaleX
+	}
+	if scaleX < 0 {
+		scaleX = scaleY
+	}
+
+	//imageWidth -= float64(m.left+m.right) / scaleX
+	//imageHeight -= float64(m.top+m.bottom) / scaleY
+	// log.Print("scaleX ", scaleX)
+	// log.Print("scaleY ", scaleY)
 	// Start drawing
-	c.Scale(scaleX, scaleY)
-	c.DrawRoundedRectangle(float64(posX)/scaleX,float64(posY)/scaleY, float64(imageWidth), float64(imageHeight), roundEdge)
-	c.Clip()
-	c.DrawImage(image, int(float64(posX)/scaleX), int(float64(posY)/scaleY))
-	c.ResetClip()
-	c.Scale(1/scaleX, 1/scaleY)
-	return nil
+
+	if c.debug {
+		c.context.SetHexColor("#55ffff55")
+		c.context.DrawRectangle(float64(r.Point.x), float64(r.Point.y), float64(r.Dimension.Width), float64(r.Dimension.Height))
+		c.context.Fill()
+
+		c.context.SetHexColor("#ffffff55")
+		c.context.DrawRectangle(float64(r.Point.x+m.Left), float64(r.Point.y+m.Top), float64(r.Dimension.Width-m.Right-m.Left), float64(r.Dimension.Height-m.Bottom-m.Top))
+		c.context.Fill()
+	}
+
+	c.context.Scale(scaleX, scaleY)
+	c.context.DrawRoundedRectangle(float64(r.Point.x+m.Left)/scaleX, float64(r.Point.y+m.Top)/scaleY, float64(imageWidth), float64(imageHeight), roundEdge/scaleX)
+	c.context.Clip()
+
+	r.Dimension.Width = int(imageWidth * scaleX)
+	r.Dimension.Height = int(imageHeight * scaleY)
+
+	drawX := int(float64(r.Point.x+m.Left) / scaleX)
+	drawY := int(float64(r.Point.y+m.Top) / scaleY)
+
+	c.context.DrawImage(image, drawX, drawY)
+	c.context.ResetClip()
+	c.context.Scale(1/scaleX, 1/scaleY)
+
+	c.saveLastBound(r)
+
+	return c
 }
 
-func getFont(fontString *string) (font *truetype.Font, err error) {
+func (c *Canvas) savePNG(path string) *Canvas {
+	c.context.SavePNG(path)
+	return c
+}
+
+func trimLastChar(s string) string {
+	return s[0 : len(s)-1]
+}
+
+func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Margin, clip TextClipOption, r Rectangle, fontColorHex string, align gg.Align) *Canvas {
+	c.verifyToFit(&r)
+
+	text = strings.TrimSpace(text)
+
+	font, err := getFont(nameFace)
+
+	if err != nil {
+		log.Print("drawText err : ", err)
+		return c
+	}
+
+	fontFace := truetype.NewFace(font, &truetype.Options{
+		Size: fontSize,
+	})
+
+	c.context.SetFontFace(fontFace)
+	stringWidth, stringHeight := c.context.MeasureString(text)
+
+	lines := c.context.WordWrap(text, float64(r.Dimension.Width))
+
+	if clip.MaxLine > 0 && len(lines) > clip.MaxLine {
+		lines = lines[:clip.MaxLine]
+	}
+
+	log.Print("lines ", len(lines), " w:", r.Dimension.Width)
+	if clip.ClipWidth > 0 {
+		dotWidth, _ := c.context.MeasureString("...")
+		for {
+			_stringWidth, _ := c.context.MeasureString(lines[len(lines)-1])
+			if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+				_stringWidth += dotWidth
+			}
+
+			log.Print("ww ", lines[len(lines)-1], " ", int(_stringWidth), "--", clip.ClipWidth)
+
+			if int(_stringWidth) > clip.ClipWidth {
+				trimmed := trimLastChar(lines[len(lines)-1])
+				log.Print("trimmed ", trimmed)
+				lines[len(lines)-1] = trimmed
+			} else {
+				stringWidth = _stringWidth
+
+				break
+			}
+		}
+	}
+
+	// log.Print("text ", text)
+
+	var renderedWidth float64
+	var isToFit = r.Dimension.Width == TEXT_TOFIT
+	if isToFit {
+		r.Dimension.Width = int(stringWidth)
+	}
+
+	// log.Print("p1 ", r)
+	c.verifyRectangle(&r)
+	// log.Print("p2 ", r)
+
+	renderedX := r.Point.x
+	renderedY := r.Point.y
+
+	if isToFit {
+		renderedWidth = stringWidth
+		renderedX = renderedX + m.Left - m.Right
+		renderedY = renderedY + m.Top - m.Bottom
+	} else {
+		renderedWidth = float64(r.Dimension.Width - m.Right - m.Left)
+		renderedX += m.Left
+		renderedY += m.Top
+	}
+
+	// if align == gg.AlignCenter {
+	// 	renderedX += m.left
+	// } else {
+
+	// }
+
+	numLine := len(lines) //int(math.Ceil(stringWidth / float64(renderedWidth)))
+	if numLine > clip.MaxLine {
+		numLine = clip.MaxLine
+	}
+
+	r.Dimension.Height = int(stringHeight*float64(numLine)*nameLineHeight) + m.Bottom + m.Top
+	if c.debug {
+		//blue normal
+		c.context.SetHexColor("#0000ffff")
+		c.context.DrawRectangle(float64(r.Point.x), float64(r.Point.y), float64(r.Dimension.Width), float64(r.Dimension.Height))
+		c.context.Fill()
+
+		//margin red
+		c.context.SetHexColor("#ff0000ff")
+		c.context.DrawRectangle(float64(renderedX), float64(renderedY), renderedWidth, float64(r.Dimension.Height-m.Bottom-m.Top))
+		c.context.Fill()
+	} else {
+		//CLIPPING
+		c.context.DrawRectangle(float64(r.Point.x), float64(r.Point.y), float64(r.Dimension.Width), float64(r.Dimension.Height))
+		if !clip.NoClip {
+			c.context.Clip()
+		}
+	}
+	c.context.SetHexColor(fontColorHex)
+
+	renderedText := strings.Join(lines, " ")
+	if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+		text = strings.Join([]string{text, "..."}, "")
+	}
+
+	c.context.DrawStringWrapped(
+		renderedText,
+		float64(renderedX),
+		float64(renderedY),
+		float64(0),
+		float64(0),
+		renderedWidth,
+		nameLineHeight, align,
+	)
+
+	if !clip.NoClip {
+		c.context.ResetClip()
+	}
+	c.saveLastBound(r)
+	c.saveLastClipText(text)
+
+	return c
+}
+
+func (c *Canvas) verifyToFit(r *Rectangle) {
+	//fit remaining.
+	if r.Dimension.Width == LAST_DIMENSION_TOFIT_WIDTH_RIGHT {
+		r.Dimension.Width = c.width - c.lastRenderBound.right()
+	}
+
+	if r.Dimension.Width == LAST_DIMENSION_TOFIT_WIDTH_LEFT {
+		r.Dimension.Width = c.width - c.lastRenderBound.Dimension.Width
+	}
+}
+
+func (c *Canvas) verifyRectangle(r *Rectangle) {
+
+	if r.Dimension.Height == LAST_DIMENSION_HEIGHT {
+		r.Dimension.Height = c.lastRenderBound.Dimension.Height
+	}
+
+	if r.Dimension.Width == LAST_DIMENSION_WIDTH {
+		r.Dimension.Width = c.lastRenderBound.Dimension.Width
+	}
+
+	if r.Point.x == LAST_POSITION_BOUND_NEXT_TO_RIGHT {
+		right := c.lastRenderBound.right()
+		if right > c.width {
+			r.Point.x = 0
+		} else {
+			r.Point.x = right
+		}
+	}
+
+	if r.Point.x == LAST_POSITION_BOUND_NEXT_TO_LEFT {
+		r.Point.x = c.lastRenderBound.left() - r.Dimension.Width
+	}
+
+	if r.Point.x == LAST_POSITION_INNNER_BOUND_LEFT {
+		r.Point.x = c.lastRenderBound.left()
+	}
+
+	if r.Point.x == LAST_POSITION_INNNER_BOUND_RIGHT {
+		r.Point.x = c.lastRenderBound.right() - r.Dimension.Width
+	}
+
+	if r.Point.x == LAST_POSITION_BOUND_VERTICAL_CENTER {
+		r.Point.x = c.lastRenderBound.left() + c.lastRenderBound.Dimension.Width/2 - r.Dimension.Width/2
+	}
+
+	if r.Point.y == LAST_POSITION_BOUND_NEXT_TO_TOP {
+		r.Point.y = c.lastRenderBound.top() - r.Dimension.Height
+	}
+
+	if r.Point.y == LAST_POSITION_BOUND_NEXT_TO_BOTTOM {
+		r.Point.y = c.lastRenderBound.bottom()
+	}
+
+	if r.Point.y == LAST_POSITION_INNER_BOUND_TOP {
+		r.Point.y = c.lastRenderBound.top()
+	}
+
+	if r.Point.y == LAST_POSITION_INNER_BOUND_BOTTOM {
+		r.Point.y = c.lastRenderBound.bottom() - r.Dimension.Height
+	}
+
+	//
+}
+
+func (c *Canvas) saveLastBound(r Rectangle) {
+	c.lastRenderBound = r
+}
+
+func (c *Canvas) saveLastClipText(t string) {
+	c.lastClipText = t
+}
+
+func cacheURLtoDisk(url string) string {
+
+	splits := strings.Split(url, "//")
+	log.Print("split ", splits[1])
+
+	savePath := strings.Join([]string{"asset", splits[1]}, "/")
+
+	os.MkdirAll(filePathToDirPath(savePath), 0755)
+	//request http
+	if _, err := os.Stat(savePath); os.IsNotExist(err) {
+		// path/to/whatever does not exist
+		response, e := http.Get(url)
+		if e != nil {
+			log.Fatal("Fatal  ", e)
+		}
+
+		defer response.Body.Close()
+
+		//create file
+		log.Print("savePath ", savePath)
+		file, err := os.Create(savePath)
+		_, err = io.Copy(file, response.Body)
+		if err != nil {
+			log.Fatal("io.Copy err ", err)
+		}
+	} else {
+		log.Print("File already cached")
+	}
+
+	return savePath
+}
+
+func filePathToDirPath(p string) string {
+	sp := strings.Split(p, "/")
+	var buffer bytes.Buffer
+	for i := 0; i < len(sp)-1; i++ {
+		buffer.WriteString(sp[i])
+
+		if i < len(sp)-2 {
+			buffer.WriteString("/")
+		}
+	}
+
+	return buffer.String()
+}
+
+var ttcache = make(map[string]*truetype.Font)
+
+func getFont(fontName string) (*truetype.Font, error) {
+	cache, hasCache := ttcache[fontName]
+	if hasCache {
+		return cache, nil
+	}
+
+	fontFlag := flag.String(fontName, strings.Join([]string{"./asset/font/", fontName}, ""), "")
+	font, err := getFontFile(fontFlag)
+	ttcache[fontName] = font
+
+	return font, err
+}
+
+func getFontFile(fontString *string) (font *truetype.Font, err error) {
 
 	fontbyte, err := ioutil.ReadFile(*fontString)
 	if err != nil {
@@ -104,98 +467,4 @@ func getFont(fontString *string) (font *truetype.Font, err error) {
 	}
 
 	return
-}
-
-func drawDescription(meta *ImageMeta, c *gg.Context) error {
-	// Prepare Asset
-	authorProfileImage, err := getImageFromURL(meta.Author)
-	if err != nil {
-		return err
-	}
-	thumbnailWidth, thumbnailHeight := float64(authorProfileImage.Bounds().Dx()), float64(authorProfileImage.Bounds().Dy())
-
-	mnlannaFont, err := getFont(mnlannabdv3)
-	DBHeaventRoundedMedFont, err := getFont(DBHeaventRoundedMed)
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	titleFace := truetype.NewFace(DBHeaventRoundedMedFont, &truetype.Options{
-		Size: titleFontSize,
-	})
-	nameFace := truetype.NewFace(mnlannaFont, &truetype.Options{
-		Size: nameFontSize,
-	})
-
-	// Measureing constant....
-	numberOfTitleLines := len(c.WordWrap(meta.Title, float64(maxTitleWidth)))
-	numberOfNameLines := len(c.WordWrap(meta.AuthorName, float64(maxNameWidth)))
-	titleHeight := (float64(numberOfTitleLines) * (titleFontSize)) + (float64(numberOfTitleLines) * (titleFontSize * titleLineHeight))
-	nameHeight := (float64(numberOfNameLines) * (nameFontSize))
-	posY := (canvasHeight / 2) - ((nameHeight + titleHeight + nameMarginTop) / 2)
-
-	// Draw title text
-	c.SetRGB(1, 1, 1)
-	c.SetFontFace(titleFace)
-	c.DrawStringWrapped(meta.Title, float64(descriptionPositionX), float64(posY), float64(0), float64(0.5), float64(maxTitleWidth), titleLineHeight, gg.AlignCenter)
-
-	c.SetFontFace(nameFace)
-	posY = posY + titleHeight + nameMarginTop
-	nameWidth, _ := c.MeasureString(meta.AuthorName)
-	if nameWidth > maxNameWidth {
-		nameWidth = maxNameWidth
-	}
-
-	c.SetHexColor("#fff")
-	profilePositionX := descriptionPositionX + profileImageWidth + (((maxNameWidth) / 2) - ((nameWidth) / 2)) - profileImageMarginLeft
-
-	c.DrawStringWrapped(
-		meta.AuthorName,
-		float64(profilePositionX+profileImageMarginLeft+profileImageWidth/2),
-		float64(posY),
-		float64(0),
-		float64(0.5),
-		float64(maxNameWidth),
-		nameLineHeight, gg.AlignLeft,
-	)
-
-	scaleX, scaleY := profileImageWidth/thumbnailWidth, profileImageHeight/thumbnailHeight
-	fmt.Printf("%f %f", scaleX, scaleY)
-
-	profilePositionX = profilePositionX / scaleX
-	profilePositionY := posY / scaleY
-
-	c.Scale(scaleX, scaleY)
-	c.DrawCircle(profilePositionX, profilePositionY, (profileImageWidth/scaleX)/2)
-	c.Clip()
-	c.DrawImageAnchored(authorProfileImage, int(profilePositionX), int(profilePositionY), 0.5, 0.5)
-
-	return nil
-
-}
-
-// DrawImage start create new canvas and do image drawing step
-func DrawImage(meta *ImageMeta) {
-	fmt.Println("[main] Draw image..")
-
-	// Load BackgroundImage from file
-	s := strings.Split(meta.Type, "_")
-	template := strings.Join([]string{"./assets/", s[0], "_template_", s[1], ".png"}, "")
-
-	bgFile, err := gg.LoadImage(template)
-	if err != nil {
-		log.Fatal(err.Error())
-	}
-
-	canvas := gg.NewContext(canvasWidth, canvasHeight)
-	canvas.DrawImage(bgFile, 0, 0)
-
-
-	drawURLImage(meta.Cover,143,140,int(bookWidth),int(bookHeight),15,canvas)
-
-	// drawBookThumbnailImageToCanvas(meta.Cover, canvas)
-	err = drawDescription(meta, canvas)
-
-	canvas.SavePNG(meta.Path)
-
 }
