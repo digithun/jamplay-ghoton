@@ -9,6 +9,18 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/globalsign/mgo"
+  packages = [
+    ".",
+    "bson",
+    "internal/json",
+    "internal/sasl",
+    "internal/scram"
+  ]
+  revision = "efe0945164a7e582241f37ae8983c075f8f2e870"
+
+[[projects]]
+  branch = "master"
   name = "github.com/golang/freetype"
   packages = [
     "raster",
@@ -21,6 +33,12 @@
   packages = ["."]
   revision = "a79fa1e548e2c689c241d10173efd51e5d689d5b"
   version = "v1.2.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/veer66/mapkha"
+  packages = ["."]
+  revision = "ed1e15bf3ea6382156d1d666b91992d63413a5ef"
 
 [[projects]]
   branch = "master"
@@ -38,6 +56,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "43408293398337ed775884543a967e40af9013d1c7ea2c0b3c2e7a39269a91c6"
+  inputs-digest = "80d3392c1bb858a1ddb038522e38998221a98a6a11e30095dcdeda46caad0c2d"
   solver-name = "gps-cdcl"
   solver-version = 1

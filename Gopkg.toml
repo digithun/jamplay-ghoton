@@ -24,10 +24,17 @@
 #   go-tests = true
 #   unused-packages = true
 
-
 [[constraint]]
   name = "github.com/fogleman/gg"
   branch = "master"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/globalsign/mgo"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/golang/freetype"
 
 [[constraint]]
   name = "github.com/joho/godotenv"

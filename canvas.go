@@ -10,8 +10,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/veer66/mapkha"
+
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
+	m "github.com/veer66/mapkha"
 )
 
 const nameLineHeight float64 = 1.2
@@ -42,10 +45,23 @@ const LAST_POSITION_INNER_BOUND_TOP = -8
 //will center to last rectangle at Y axis
 const LAST_POSITION_BOUND_VERTICAL_CENTER = -9
 
-const TEXT_TOFIT = 0
-const TEXT_SINGLE_LINE = 9999
+//text width
+const TEXT_WIDTH_TOFIT = 0
+const TEXT_HEIGHT_TOFIT = 0
 
-//type
+const TEXT_SINGLE_LINE = 9999
+const TEXT_HEIGHT_MAX_LINE = -1
+
+//text alignVertical
+const TEXT_ALLIGN_HORIZONTAL_LEFT, TEXT_ALLIGN_HORIZONTAL_DEFAULT = gg.AlignLeft, gg.AlignLeft
+const TEXT_ALLIGN_HORIZONTAL_CENTER = gg.AlignCenter
+const TEXT_ALLIGN_HORIZONTAL_RIGHT = gg.AlignRight
+
+const TEXT_ALLIGN_VERTICAL_TOP, TEXT_ALLIGN_VERTICAL_DEFAULT = 0, 0
+const TEXT_ALLIGN_VERTICAL_CENTER = -1
+const TEXT_ALLIGN_VERTICAL_BOTTOM = -2
+
+//clip type
 const TEXT_CLIP_OVERFLOW_CLIP = 0
 const TEXT_CLIP_OVERFLOW_ELLIPSIS = 1
 
@@ -124,15 +140,15 @@ func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64
 	c.verifyRectangle(&r)
 
 	if strings.Index(path, "http") == 0 {
-		log.Print("is URL : ")
-		path = cacheURLtoDisk(path)
+		c.logPrint("is URL : ")
+		path = c.cacheURLtoDisk(path)
 	}
-	log.Print("is path : ", path)
+	c.logPrint("is path : ", path)
 
 	image, err := gg.LoadImage(path)
 
 	if err != nil {
-		log.Print("err ", err)
+		c.logPrint("err ", err)
 		return c
 	}
 
@@ -148,8 +164,8 @@ func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64
 
 	//imageWidth -= float64(m.left+m.right) / scaleX
 	//imageHeight -= float64(m.top+m.bottom) / scaleY
-	// log.Print("scaleX ", scaleX)
-	// log.Print("scaleY ", scaleY)
+	// c.logPrint("scaleX ", scaleX)
+	// c.logPrint("scaleY ", scaleY)
 	// Start drawing
 
 	if c.debug {
@@ -183,22 +199,19 @@ func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64
 
 func (c *Canvas) savePNG(path string) *Canvas {
 	c.context.SavePNG(path)
+
 	return c
 }
 
-func trimLastChar(s string) string {
-	return s[0 : len(s)-1]
-}
-
-func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Margin, clip TextClipOption, r Rectangle, fontColorHex string, align gg.Align) *Canvas {
+func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Margin, clip TextClipOption, r Rectangle, fontColorHex string, alignHorizontal gg.Align, alignVertical int) *Canvas {
 	c.verifyToFit(&r)
 
 	text = strings.TrimSpace(text)
-
-	font, err := getFont(nameFace)
+	c.logPrint("rendering Text: ", text)
+	font, err := c.getFont(nameFace)
 
 	if err != nil {
-		log.Print("drawText err : ", err)
+		c.logPrint("drawText err : ", err)
 		return c
 	}
 
@@ -209,46 +222,136 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 	c.context.SetFontFace(fontFace)
 	stringWidth, stringHeight := c.context.MeasureString(text)
 
-	lines := c.context.WordWrap(text, float64(r.Dimension.Width))
+	lines := []string{text}
 
-	if clip.MaxLine > 0 && len(lines) > clip.MaxLine {
-		lines = lines[:clip.MaxLine]
+	//calc lines
+	var _clipWidth = 0
+	if r.Dimension.Width == TEXT_WIDTH_TOFIT && clip.ClipWidth > 0 {
+		_clipWidth = clip.ClipWidth
+	} else {
+		_clipWidth = r.Dimension.Width - m.Left - m.Right
 	}
+	c.logPrint("---------_clipWidth ", _clipWidth)
+	lines = c.context.WordWrap(text, float64(_clipWidth))
 
-	log.Print("lines ", len(lines), " w:", r.Dimension.Width)
-	if clip.ClipWidth > 0 {
-		dotWidth, _ := c.context.MeasureString("...")
+	// end calc lines
+
+	//help new line thai text
+	if clip.MaxLine > 1 {
+		workingLine := 0
 		for {
-			_stringWidth, _ := c.context.MeasureString(lines[len(lines)-1])
-			if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
-				_stringWidth += dotWidth
+			if workingLine > len(lines)-1 {
+				break
 			}
 
-			log.Print("ww ", lines[len(lines)-1], " ", int(_stringWidth), "--", clip.ClipWidth)
+			// c.logPrint("workingLine ", workingLine)
+			lineString := lines[workingLine]
+			w, _ := c.context.MeasureString(lineString)
+			if w > float64(_clipWidth) {
+				//thai line exceed width, try removing one word to next line
+				words := tWordCut(lineString)
+				keepWords := words[0 : len(words)-1]
+				shiftWords := words[len(words)-1:]
 
-			if int(_stringWidth) > clip.ClipWidth {
-				trimmed := trimLastChar(lines[len(lines)-1])
-				log.Print("trimmed ", trimmed)
+				lines[workingLine] = strings.Join(keepWords, "")
+
+				joinShift := strings.Join(shiftWords, "")
+
+				c.logPrint("workingLine ", workingLine)
+				c.logPrint("len(lines) ", len(lines))
+				// break
+				if workingLine+1 >= len(lines) {
+					//new line
+					lines = append(lines, joinShift)
+				} else {
+					//modify line, add shift word in front
+					lines[workingLine+1] = strings.Join([]string{joinShift, lines[workingLine+1]}, " ")
+				}
+
+				c.logPrint("keep ", keepWords)
+				c.logPrint("shift ", shiftWords)
+			} else {
+				workingLine++
+			}
+		}
+	}
+
+	//set heigh if required
+	if r.Dimension.Height == TEXT_HEIGHT_MAX_LINE {
+		r.Dimension.Height = int(stringHeight*float64(clip.MaxLine)*nameLineHeight) + m.Bottom + m.Top
+	}
+
+	hasClipLine := false
+	if clip.MaxLine > 0 && len(lines) > clip.MaxLine {
+		lines = lines[:clip.MaxLine]
+		hasClipLine = true
+	}
+
+	hasTrimmed := false
+	c.logPrint("lines ", len(lines), " w:", r.Dimension.Width)
+	if clip.ClipWidth > 0 {
+
+		// if clip.ClipWidth > r.Dimension.Width-m.Left-m.Right {
+		// 	clip.ClipWidth = r.Dimension.Width - m.Left - m.Right
+		// }
+
+		for {
+			var _stringWidth = 0.0
+
+			lineText := lines[len(lines)-1]
+			c.logPrint("lineText ", lineText)
+
+			if hasClipLine && clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+				c.logPrint("_stringWidth TEXT_CLIP_OVERFLOW_ELLIPSIS")
+
+				_stringWidth, _ = c.context.MeasureString(strings.Join([]string{lineText, "..."}, ""))
+			} else {
+				c.logPrint("_stringWidth norm")
+
+				_stringWidth, _ = c.context.MeasureString(lineText)
+			}
+
+			// c.logPrint("ww ", lineText, " ", int(_stringWidth), "--", clip.ClipWidth)
+			c.logPrint("_stringWidth ", _stringWidth)
+			c.logPrint("ClipWidth ", clip.ClipWidth)
+			c.logPrint("r.Dimension.Width ", r.Dimension.Width)
+			if _stringWidth > float64(clip.ClipWidth) {
+				trimmed := trimLastChar(lineText)
+				c.logPrint("trimmed ", trimmed)
 				lines[len(lines)-1] = trimmed
+
+				hasTrimmed = true
 			} else {
 				stringWidth = _stringWidth
+				if r.Dimension.Width == TEXT_WIDTH_TOFIT {
+					r.Dimension.Width = int(stringWidth)
+					c.logPrint("TEXT_TOFIT = ", r.Dimension.Width)
+				}
+
+				if hasTrimmed {
+
+					_toJoin := lines[len(lines)-1]
+
+					_toJoin = c.cleanUpThaiText(_toJoin)
+					lines[len(lines)-1] = strings.Join([]string{_toJoin, "..."}, "")
+				}
 
 				break
 			}
 		}
 	}
 
-	// log.Print("text ", text)
+	// c.logPrint("text ", text)
 
 	var renderedWidth float64
-	var isToFit = r.Dimension.Width == TEXT_TOFIT
+	var isToFit = r.Dimension.Width == TEXT_WIDTH_TOFIT
 	if isToFit {
 		r.Dimension.Width = int(stringWidth)
 	}
 
-	// log.Print("p1 ", r)
+	// c.logPrint("p1 ", r)
 	c.verifyRectangle(&r)
-	// log.Print("p2 ", r)
+	// c.logPrint("p2 ", r)
 
 	renderedX := r.Point.x
 	renderedY := r.Point.y
@@ -270,11 +373,18 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 	// }
 
 	numLine := len(lines) //int(math.Ceil(stringWidth / float64(renderedWidth)))
+	c.logPrint("numLine ", numLine, "  ", lines)
 	if numLine > clip.MaxLine {
 		numLine = clip.MaxLine
 	}
 
-	r.Dimension.Height = int(stringHeight*float64(numLine)*nameLineHeight) + m.Bottom + m.Top
+	if r.Dimension.Height == TEXT_WIDTH_TOFIT {
+		r.Dimension.Height = int(stringHeight*float64(numLine)*nameLineHeight) + m.Bottom + m.Top
+	} else {
+		// c.logPrint("find new numline ", int(float64(r.Dimension.Height)/float64((stringHeight*float64(1)*nameLineHeight))))
+		numLine = int(float64(r.Dimension.Height) / float64((stringHeight * float64(1) * nameLineHeight)))
+	}
+
 	if c.debug {
 		//blue normal
 		c.context.SetHexColor("#0000ffff")
@@ -294,10 +404,29 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 	}
 	c.context.SetHexColor(fontColorHex)
 
-	renderedText := strings.Join(lines, " ")
-	if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
-		text = strings.Join([]string{text, "..."}, "")
+	//force new line on render
+	renderedText := strings.Join(lines, "\n")
+
+	// if hasTrimmed && clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+	// 	text = strings.Join([]string{text, "..."}, "")
+	// }
+
+	//shift down if allign vertically
+	if (alignVertical == TEXT_ALLIGN_VERTICAL_CENTER ||
+		alignVertical == TEXT_ALLIGN_VERTICAL_BOTTOM) &&
+		len(lines) < numLine {
+
+		shiftY := int(stringHeight * float64((numLine - len(lines))) * nameLineHeight)
+		if alignVertical == TEXT_ALLIGN_VERTICAL_CENTER {
+			renderedY += shiftY / 2
+			r.Point.y -= shiftY / 2
+
+		} else if alignVertical == TEXT_ALLIGN_VERTICAL_BOTTOM {
+			renderedY += shiftY
+			// r.Point.y -= shiftY
+		}
 	}
+	c.logPrint("---------renderedWidth ", renderedWidth)
 
 	c.context.DrawStringWrapped(
 		renderedText,
@@ -306,7 +435,7 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 		float64(0),
 		float64(0),
 		renderedWidth,
-		nameLineHeight, align,
+		nameLineHeight, alignHorizontal,
 	)
 
 	if !clip.NoClip {
@@ -391,10 +520,10 @@ func (c *Canvas) saveLastClipText(t string) {
 	c.lastClipText = t
 }
 
-func cacheURLtoDisk(url string) string {
+func (c *Canvas) cacheURLtoDisk(url string) string {
 
 	splits := strings.Split(url, "//")
-	log.Print("split ", splits[1])
+	c.logPrint("split ", splits[1])
 
 	savePath := strings.Join([]string{"asset", splits[1]}, "/")
 
@@ -410,14 +539,14 @@ func cacheURLtoDisk(url string) string {
 		defer response.Body.Close()
 
 		//create file
-		log.Print("savePath ", savePath)
+		c.logPrint("savePath ", savePath)
 		file, err := os.Create(savePath)
 		_, err = io.Copy(file, response.Body)
 		if err != nil {
 			log.Fatal("io.Copy err ", err)
 		}
 	} else {
-		log.Print("File already cached")
+		c.logPrint("File already cached")
 	}
 
 	return savePath
@@ -439,32 +568,90 @@ func filePathToDirPath(p string) string {
 
 var ttcache = make(map[string]*truetype.Font)
 
-func getFont(fontName string) (*truetype.Font, error) {
+func (c *Canvas) getFont(fontName string) (*truetype.Font, error) {
 	cache, hasCache := ttcache[fontName]
 	if hasCache {
 		return cache, nil
 	}
 
 	fontFlag := flag.String(fontName, strings.Join([]string{"./asset/font/", fontName}, ""), "")
-	font, err := getFontFile(fontFlag)
+	font, err := c.getFontFile(fontFlag)
 	ttcache[fontName] = font
 
 	return font, err
 }
 
-func getFontFile(fontString *string) (font *truetype.Font, err error) {
+func (c *Canvas) getFontFile(fontString *string) (font *truetype.Font, err error) {
 
 	fontbyte, err := ioutil.ReadFile(*fontString)
 	if err != nil {
-		log.Println(err)
-		return
+		c.logPrint(err)
+		return nil, err
 	}
 
 	font, err = truetype.Parse(fontbyte)
 	if err != nil {
-		log.Println(err)
-		return
+		c.logPrint(err)
+		return nil, err
 	}
 
-	return
+	return font, err
+}
+
+func runeOf(__s string) rune {
+	return []rune(__s)[0]
+}
+
+func (c *Canvas) cleanUpThaiText(s string) string {
+
+	for {
+		lastChar := s[len(s)-1]
+		c.logPrint("lastChar ", []rune(string(lastChar))[0])
+
+		_rune := runeOf(string(lastChar))
+
+		if runeOf("�") == _rune ||
+			runeOf("ั") == _rune ||
+			runeOf("ิ") == _rune ||
+			runeOf("็") == _rune ||
+			runeOf("ํ") == _rune ||
+			runeOf("๊") == _rune ||
+			runeOf("ึ") == _rune ||
+			runeOf("่") == _rune ||
+			runeOf("้") == _rune ||
+			runeOf("๋") == _rune ||
+			runeOf("ุ") == _rune ||
+			runeOf("ู") == _rune {
+			s = s[0 : len(s)-1]
+
+		} else {
+			c.logPrint("cleaned text")
+			break
+		}
+	}
+
+	return s
+}
+
+func trimLastChar(s string) string {
+	return s[0 : len(s)-1]
+}
+
+func (c *Canvas) logPrint(v ...interface{}) {
+	if c.debug {
+		log.Print(v)
+	}
+}
+
+var dict *mapkha.Dict
+
+func tWordCut(s string) []string {
+
+	if dict == nil {
+		dict, _ = m.LoadDefaultDict()
+	}
+
+	wordcut := m.NewWordcut(dict)
+
+	return wordcut.Segment(s)
 }
