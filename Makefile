@@ -2,7 +2,7 @@
 HOST_PLATFORM=$$(uname -s)
 HOST_ARCH=$$(uname -m)
 BIN_NAME=$$(cat README.md  | grep -o '\[[a-z-]\+]' | tr -d '[]')
-BUILD_FILES=main.go canvas.go
+BUILD_FILES=main.go canvas.go renderer.go mgo-helper.go s3-uploader.go cloudflare-helper.go
 ## DOCKER AND TAGS
 NAME=$$BIN_NAME
 TAG=gcr.io/$$(gcloud config get-value project)/$(NAME)

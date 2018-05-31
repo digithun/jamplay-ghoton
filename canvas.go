@@ -3,12 +3,18 @@ package main
 import (
 	"bytes"
 	"flag"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	"regexp"
 
 	"github.com/veer66/mapkha"
 
@@ -43,7 +49,10 @@ const LAST_POSITION_INNER_BOUND_BOTTOM = -7
 const LAST_POSITION_INNER_BOUND_TOP = -8
 
 //will center to last rectangle at Y axis
-const LAST_POSITION_BOUND_VERTICAL_CENTER = -9
+const LAST_POSITION_BOUND_HORIZONTAL_CENTER = -9
+
+//will center to last rectangle at X axis, only works if rectangle has defined height
+const LAST_POSITION_BOUND_VERTICAL_CENTER = -10
 
 //text width
 const TEXT_WIDTH_TOFIT = 0
@@ -136,13 +145,23 @@ func (c *Canvas) drawCircle(p Point, radius float64, colorHex string) *Canvas {
 
 // scaleToPx scale to pixel
 // scaleDimension select which side to scale. All scaling will retain aspect ratio
-func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64) *Canvas {
+func (c *Canvas) drawImage(path, fallbackPath string, m Margin, r Rectangle, roundEdge float64) *Canvas {
 	c.verifyRectangle(&r)
+
+	if len(path) == 0 {
+		path = fallbackPath
+	}
 
 	if strings.Index(path, "http") == 0 {
 		c.logPrint("is URL : ")
 		path = c.cacheURLtoDisk(path)
 	}
+
+	if len(path) == 0 && len(fallbackPath) > 0 {
+		c.logPrint("path is broken using fallback image : ", path)
+		path = fallbackPath
+	}
+
 	c.logPrint("is path : ", path)
 
 	image, err := gg.LoadImage(path)
@@ -197,10 +216,62 @@ func (c *Canvas) drawImage(path string, m Margin, r Rectangle, roundEdge float64
 	return c
 }
 
-func (c *Canvas) savePNG(path string) *Canvas {
-	c.context.SavePNG(path)
+func (c *Canvas) toStream(ext string, w io.Writer) {
+
+	if ext == "jpg" {
+		jpegOpt := getJpegOpt()
+		jpeg.Encode(w, c.context.Image(), &jpegOpt)
+	} else {
+		png.Encode(w, c.context.Image())
+	}
+}
+
+func (c *Canvas) saveFile(path string) *Canvas {
+	ext := getExtFromPath(path)
+
+	if ext == ".jpg" {
+		c.saveJPG(path)
+	} else {
+		c.context.SavePNG(path)
+	}
 
 	return c
+}
+
+func getJpegOpt() jpeg.Options {
+	qualityenv := os.Getenv("QUALITY")
+	quality := int64(75)
+	if len(qualityenv) > 1 {
+		quality, _ = strconv.ParseInt(qualityenv, 10, 64)
+	}
+	log.Print("quality ", quality)
+	jpegOpt := jpeg.Options{Quality: int(quality)}
+	return jpegOpt
+}
+
+func (c *Canvas) saveJPG(path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	jpegOpt := getJpegOpt()
+	return jpeg.Encode(file, c.context.Image(), &jpegOpt)
+}
+
+var regExt = regexp.MustCompile(`\.[0-9a-z]+$`)
+
+func getExtFromPath(path string) string {
+	path = strings.ToLower(path)
+
+	match := regExt.Find([]byte(path))
+	matchString := string(match)
+
+	if len(matchString) > 0 {
+		return matchString
+	} else {
+		return ""
+	}
 }
 
 func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Margin, clip TextClipOption, r Rectangle, fontColorHex string, alignHorizontal gg.Align, alignVertical int) *Canvas {
@@ -281,14 +352,15 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 		r.Dimension.Height = int(stringHeight*float64(clip.MaxLine)*nameLineHeight) + m.Bottom + m.Top
 	}
 
-	hasClipLine := false
+	// hasClipLine := false
 	if clip.MaxLine > 0 && len(lines) > clip.MaxLine {
 		lines = lines[:clip.MaxLine]
-		hasClipLine = true
+		// hasClipLine = true
 	}
 
 	hasTrimmed := false
 	c.logPrint("lines ", len(lines), " w:", r.Dimension.Width)
+	//clip new line
 	if clip.ClipWidth > 0 {
 
 		// if clip.ClipWidth > r.Dimension.Width-m.Left-m.Right {
@@ -301,9 +373,8 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 			lineText := lines[len(lines)-1]
 			c.logPrint("lineText ", lineText)
 
-			if hasClipLine && clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+			if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
 				c.logPrint("_stringWidth TEXT_CLIP_OVERFLOW_ELLIPSIS")
-
 				_stringWidth, _ = c.context.MeasureString(strings.Join([]string{lineText, "..."}, ""))
 			} else {
 				c.logPrint("_stringWidth norm")
@@ -329,11 +400,14 @@ func (c *Canvas) drawText(text string, nameFace string, fontSize float64, m Marg
 				}
 
 				if hasTrimmed {
-
 					_toJoin := lines[len(lines)-1]
 
 					_toJoin = c.cleanUpThaiText(_toJoin)
-					lines[len(lines)-1] = strings.Join([]string{_toJoin, "..."}, "")
+					if clip.OverFlowOption == TEXT_CLIP_OVERFLOW_ELLIPSIS {
+						lines[len(lines)-1] = strings.Join([]string{_toJoin, "..."}, "")
+					} else {
+						lines[len(lines)-1] = _toJoin
+					}
 				}
 
 				break
@@ -489,7 +563,7 @@ func (c *Canvas) verifyRectangle(r *Rectangle) {
 		r.Point.x = c.lastRenderBound.right() - r.Dimension.Width
 	}
 
-	if r.Point.x == LAST_POSITION_BOUND_VERTICAL_CENTER {
+	if r.Point.x == LAST_POSITION_BOUND_HORIZONTAL_CENTER {
 		r.Point.x = c.lastRenderBound.left() + c.lastRenderBound.Dimension.Width/2 - r.Dimension.Width/2
 	}
 
@@ -509,6 +583,9 @@ func (c *Canvas) verifyRectangle(r *Rectangle) {
 		r.Point.y = c.lastRenderBound.bottom() - r.Dimension.Height
 	}
 
+	if r.Point.y == LAST_POSITION_BOUND_VERTICAL_CENTER {
+		r.Point.y = c.lastRenderBound.Point.y + c.lastRenderBound.Dimension.Height/2 - r.Dimension.Height/2
+	}
 	//
 }
 
@@ -530,10 +607,15 @@ func (c *Canvas) cacheURLtoDisk(url string) string {
 	os.MkdirAll(filePathToDirPath(savePath), 0755)
 	//request http
 	if _, err := os.Stat(savePath); os.IsNotExist(err) {
-		// path/to/whatever does not exist
-		response, e := http.Get(url)
+		// path/to/whatever does not exist, load from http
+
+		client := http.Client{
+			Timeout: time.Duration(5 * time.Second),
+		}
+		response, e := client.Get(url)
 		if e != nil {
-			log.Fatal("Fatal  ", e)
+			c.logPrint("Fatal  ", e)
+			return ""
 		}
 
 		defer response.Body.Close()

@@ -4,3 +4,5 @@ out.png
 gopher.png
 test-render-*
 asset/static.jamplay.world
+asset/s3-ap-southeast-1.amazonaws.com/static.jamplay.world
+render
