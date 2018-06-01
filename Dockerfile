@@ -11,6 +11,6 @@ RUN make build
 
 FROM acoshift/go-scratch
 COPY --from=builder /go/src/jamplay-ghoton/jamplay-ghoton /
-COPY --from=builder /go/src/jamplay-ghoton/asset /
+COPY ./asset /asset
 
 ENTRYPOINT ["/jamplay-ghoton"]
