@@ -610,7 +610,7 @@ func (c *Canvas) cacheURLtoDisk(url string) string {
 		// path/to/whatever does not exist, load from http
 
 		client := http.Client{
-			Timeout: time.Duration(5 * time.Second),
+			Timeout: time.Duration(10 * time.Second),
 		}
 		response, e := client.Get(url)
 		if e != nil {
@@ -625,7 +625,8 @@ func (c *Canvas) cacheURLtoDisk(url string) string {
 		file, err := os.Create(savePath)
 		_, err = io.Copy(file, response.Body)
 		if err != nil {
-			log.Fatal("io.Copy err ", err)
+			c.logPrint("io.Copy err ", err)
+			return ""
 		}
 	} else {
 		c.logPrint("File already cached")

@@ -50,7 +50,7 @@ func main() {
 		}
 
 		c.JSON(200, gin.H{
-			"message": "pong",
+			"key": f.Path,
 		})
 	})
 
@@ -59,4 +59,6 @@ func main() {
 	if r.Run(strings.Join([]string{":", port}, "")) != nil {
 		log.Print("GIN Run Error: ", err)
 	}
+
+	// renderAllBook()
 }

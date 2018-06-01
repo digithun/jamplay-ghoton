@@ -37,6 +37,12 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/fanliao/go-promise"
+  packages = ["."]
+  revision = "1890db352a72f9e6c6219c20111355cddc795297"
+
+[[projects]]
+  branch = "master"
   name = "github.com/fogleman/gg"
   packages = ["."]
   revision = "a9ff18eccd6d57b3c8576a71a91a04868f62078c"
@@ -153,6 +159,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "94c009c386fd6d941cd0819bd902be434efb735e3b019ffc24564fbf0fb6eaaf"
+  inputs-digest = "1165fee880190f056977f44f81726ef4c320e78eca6e81cd08fb32d6eee81bb3"
   solver-name = "gps-cdcl"
   solver-version = 1

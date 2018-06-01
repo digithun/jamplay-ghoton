@@ -1,56 +1,26 @@
-# [jamplay-adore] [v1.0.2]
+# [jamplay-ghoton] [v2.0.0]
 
-This repository purpose is to collect hearts
+# Image Processing
+### Purpose
+ This is a Golang version of jamplay-photon
+ The main purpose of this service is to create composite images using by sending custom parameters to the service
 
-## API
+ ### Features/TOHAVEs
 
-## GET /asset/`:AssetType`/`:ContentType`/`:ContentID`
-#### Header:
-```
-Nothing..
-```
+ - Compose image canvas draw APIs
+ - Cache composite images
+ - S3 uploader
+ - Cloudflare cache clearer
 
-#### Params:
-```
-AssetType : String // eg. heart, banana, coffee
-ContentType : String // eg. episode, book, author
-ContentId : String // eg. bookId, episodeId, authorId
-```
-#### Result:
-```
-{
-    "result": {
-        "assetType": "heart"
-        "contentType": "episode",
-        "contentId": "2sdf28wer79520088d479",
-        "count": 45642
-    }
-}
-```
+### Prerequisites
+- GO
+- GO dep
 
-## PUT /asset/:`AssetType`/:`ContentType`/:`ContentID`/:`Amount`
-#### Header:
-```
-UserID: String // eg your user id d9f8b990rf8800d0v990
-```
+### Installation
+Use `dep ensure` to download all required libs
 
-#### Params:
-```
-AssetType : String // eg. heart, banana, coffee
-ContentType : String // eg. episode, book, author
-ContentID : String // eg. bookId, episodeId, authorId
-Amount: Integer // eg 5, will send 5 times, default is 1 if not send
-```
+### Dev
+Use `make dev`
 
-#### Result:
-```
-{
-    "result": {
-        "assetType": "heart"
-        "contentType": "episode",
-        "contentId": "2sdf28wer79520088d479",
-        "count": 45647 // will increment
-    }
-}
-```
-
+### Builds
+See Makefile

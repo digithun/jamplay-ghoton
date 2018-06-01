@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -36,20 +35,20 @@ func clearCache(key string) {
 		req.Header.Set("X-Auth-Key", cloudflare_auth_key)
 		req.Header.Set("Content-Type", "application/json")
 
-		res, err := client.Do(req)
+		_, err := client.Do(req)
 		if err != nil {
 			log.Print("cloudflare client req err", err)
 		}
 
 		defer req.Body.Close()
 
-		log.Print("res.StatusCode ", res.StatusCode)
-		bodyBytes, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			log.Print("cloudflare err io ", err)
-		}
+		// log.Print("res.StatusCode ", res.StatusCode)
+		// _, err := ioutil.ReadAll(res.Body)
+		// if err != nil {
+		// 	log.Print("cloudflare err io ", err)
+		// }
 
-		bodyString := string(bodyBytes)
-		log.Print("cloudflare res ", bodyString)
+		// bodyString := string(bodyBytes)
+		// log.Print("cloudflare res ", bodyString)
 	}
 }

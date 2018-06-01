@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fanliao/go-promise"
 	"github.com/globalsign/mgo/bson"
 )
 
@@ -80,7 +81,7 @@ func renderAllBook() {
 		log.Print("mongoResult.AuthorName  ", mongoResult.AuthorName)
 		log.Print("mongoResult.Category  ", mongoResult.Category)
 
-		savePath := strings.Join([]string{"render/book/", mongoResult.Id.Hex(), ".png"}, "")
+		savePath := strings.Join([]string{"share/book/", mongoResult.Id.Hex(), ".jpg"}, "")
 
 		renderShareBook(mongoResult.AuthorName, mongoResult.Title, mongoResult.CoverImage, mongoResult.AuthorImage, "", savePath, nil)
 	}
@@ -94,6 +95,9 @@ func renderAllAuthor() {
 	authors := db.C("authors")
 
 	authorQuery := []bson.M{
+		// {"$match": bson.M{
+		// 	"_id": bson.ObjectIdHex("599ff17af5be162888e5e14f"),
+		// }},
 		{"$project": bson.M{
 			"_id":         1,
 			"name":        1,
@@ -119,7 +123,7 @@ func renderAllAuthor() {
 		log.Print("mongoResult Name   ", mongoResult.AuthorName)
 		log.Print("mongoResult AuthorImage   ", mongoResult.AuthorImage)
 
-		savePath := strings.Join([]string{"render/author/", mongoResult.Id.Hex(), ".png"}, "")
+		savePath := strings.Join([]string{"share/author/", mongoResult.Id.Hex(), ".jpg"}, "")
 
 		renderShareAuthor(mongoResult.AuthorName, mongoResult.AuthorImage, savePath, nil)
 	}
@@ -147,7 +151,6 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 		}, "")
 	}
 
-	log.Print("1111111")
 	c.drawImage(
 		"asset/share_template_book.png", "",
 		Margin{}, Rectangle{
@@ -200,8 +203,6 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 			},
 			"#55555500", TEXT_ALLIGN_HORIZONTAL_CENTER, TEXT_ALLIGN_VERTICAL_DEFAULT)
 
-	log.Print("22222")
-
 	nameRectangle := c.lastRenderBound
 	c.saveLastBound(nameRectangle)
 	// log.Print("c.lastClipText ", c.lastClipText)
@@ -247,8 +248,7 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 
 	if len(savePath) > 0 {
 		c.saveFile(savePath)
-		go uploadFileToS3(savePath, savePath)
-		go clearCache(savePath)
+		handleUpload(savePath)
 	}
 
 	if w != nil {
@@ -311,8 +311,7 @@ func renderShareAuthor(authorName, authorImage, savePath string, w io.Writer) {
 
 	if len(savePath) > 0 {
 		c.saveFile(savePath)
-		go uploadFileToS3(savePath, savePath)
-		go clearCache(savePath)
+		handleUpload(savePath)
 	}
 
 	if w != nil {
@@ -320,4 +319,18 @@ func renderShareAuthor(authorName, authorImage, savePath string, w io.Writer) {
 	}
 
 	log.Print("Time taken ms: ", (time.Now().UnixNano()-t1)/int64(time.Millisecond))
+}
+
+func handleUpload(savePath string) {
+	promise.WhenAll(
+		func() (r interface{}, err error) {
+			uploadFileToS3(savePath, savePath)
+			os.Remove(savePath)
+
+			return "ok1", nil
+		},
+		func() (r interface{}, err error) {
+			clearCache(savePath)
+			return "ok2", nil
+		}).Get()
 }

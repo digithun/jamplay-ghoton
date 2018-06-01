@@ -57,9 +57,9 @@ production:
 production-osx:
 	./$(BIN_NAME)-osx
 
-build-osx: prepare
+build-osx:
 	env GOARCH=amd64 CGO_ENABLED=0 COMPRESS_BINARY=true -ldflags="-s -w" go build -o $(BIN_NAME)-osx $(BUILD_FILES)
-	@upx --lzma -9 $(BIN_NAME)-osx	
+	@upx --lzma -9 $(BIN_NAME)-osx
 
 ##  https://blog.filippo.io/shrink-your-go-binaries-with-this-one-weird-trick/
 build: prepare
