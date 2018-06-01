@@ -8,8 +8,9 @@ RUN apt-get update
 RUN apt-get install xz-utils
 RUN mkdir -p /tmp
 RUN make build
-RUN ls -halp
 
 FROM acoshift/go-scratch
 COPY --from=builder /go/src/jamplay-ghoton/jamplay-ghoton /
+COPY --from=builder /go/src/jamplay-ghoton/asset /
+
 ENTRYPOINT ["/jamplay-ghoton"]
