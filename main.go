@@ -34,6 +34,7 @@ func main() {
 			AuthorImage string `json:"author"`
 			CoverImage  string `json:"cover"`
 			RenderType  string `json:"type"`
+			Category    string `json:"category"`
 		}
 
 		var f format
@@ -46,7 +47,7 @@ func main() {
 			renderShareAuthor(f.AuthorName, f.AuthorImage, f.Path, nil)
 		case "share_book":
 			log.Print("render share_book")
-			renderShareBook(f.AuthorName, f.Title, f.CoverImage, f.AuthorImage, "", f.Path, nil)
+			renderShareBook(f.AuthorName, f.Title, f.CoverImage, f.AuthorImage, f.Category, f.Path, nil)
 		}
 
 		c.JSON(200, gin.H{

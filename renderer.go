@@ -131,6 +131,14 @@ func renderAllAuthor() {
 
 }
 
+func getDefaultCoverCategoty(category string) string {
+	if len(category) > 0 {
+		return strings.Join([]string{"https://static.jamplay.world/assets/images/default-book-thumbnail/cover-books-default-", category, ".jpg"}, "")
+	} else {
+		return "asset/default-pic-cover-book.png"
+	}
+}
+
 func renderShareBook(authorName, title, coverImage, authorImage, category, savePath string, w io.Writer) {
 
 	log.Print("renderShareBook rendering: ", savePath)
@@ -158,7 +166,7 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 			Point{0, 0},
 		}, 0).
 		drawImage(
-			coverImage, "asset/default-pic-cover-book.png",
+			coverImage, getDefaultCoverCategoty(category),
 			Margin{},
 			Rectangle{
 				Dimension{405, 590},
