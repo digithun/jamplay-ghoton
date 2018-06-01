@@ -39,7 +39,7 @@ func main() {
 
 		var f format
 		c.BindJSON(&f)
-		log.Print("keys ", f.RenderType)
+		log.Print("format ", f)
 
 		switch f.RenderType {
 		case "share_author":

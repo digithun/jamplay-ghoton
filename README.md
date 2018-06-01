@@ -1,4 +1,4 @@
-# [jamplay-ghoton] [v2.0.0]
+# [jamplay-ghoton] [v2.0.1]
 
 # Image Processing
 ### Purpose
@@ -6,7 +6,6 @@
  The main purpose of this service is to create composite images using by sending custom parameters to the service
 
  ### Features/TOHAVEs
-
  - Compose image canvas draw APIs
  - Cache composite images
  - S3 uploader
