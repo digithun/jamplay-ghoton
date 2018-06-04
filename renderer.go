@@ -201,9 +201,9 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 			53.0,
 			Margin{5, 0, 0, 0},
 			TextClipOption{
-				MaxLine:   1,
-				ClipWidth: c.width - 405 - 40,
-				// OverFlowOption: TEXT_CLIP_OVERFLOW_ELLIPSIS,
+				MaxLine:        1,
+				ClipWidth:      c.width - 405 - 40,
+				OverFlowOption: TEXT_CLIP_OVERFLOW_ELLIPSIS,
 			},
 			Rectangle{
 				Dimension{TEXT_WIDTH_TOFIT, 53},
@@ -238,10 +238,10 @@ func renderShareBook(authorName, title, coverImage, authorImage, category, saveP
 		53.0,
 		Margin{8, 0, 0, 13},
 		TextClipOption{
-			MaxLine:        1,
-			ClipWidth:      nameRectangle.Dimension.Width - c.lastRenderBound.Dimension.Width,
-			OverFlowOption: TEXT_CLIP_OVERFLOW_ELLIPSIS,
-			NoClip:         true,
+			MaxLine:   1,
+			ClipWidth: nameRectangle.Dimension.Width - c.lastRenderBound.Dimension.Width,
+			// OverFlowOption: TEXT_CLIP_OVERFLOW_ELLIPSIS,
+			NoClip: true,
 		},
 		Rectangle{
 			Dimension{nameRectangle.Dimension.Width - c.lastRenderBound.Dimension.Width, 60},
